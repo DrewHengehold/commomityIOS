@@ -1,7 +1,14 @@
 import SwiftUI
 
 struct CommunityView: View {
-    let posts = SampleData.communityPosts
+    @Environment(PostStore.self) private var postStore
+    @Environment(UserSessionManager.self) private var session
+    @State private var selectedIntent: PostIntent? = nil
+    @State private var showCreatePost: Bool = false
+
+    var filteredPosts: [CommunityPost] {
+        postStore.posts(for: selectedIntent)
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -17,35 +24,86 @@ struct CommunityView: View {
                         .font(AppTheme.Fonts.playfair(36))
                         .foregroundColor(.black)
                     Spacer()
-                    Color.clear.frame(width: 35)
+                    Button {
+                        showCreatePost = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.black)
+                    }
+                    .padding(.trailing, 12)
+
+                    AvatarCircle(size: 40)
+                        .padding(.trailing, 29)
+
                 }
-                .padding(.top, 14)
+                .padding(.top, 0)
+                .padding(.bottom, 4)
+                .frame(height: 60) //Added to Fix issue with large white space
 
                 // Scrollable filter pills
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
-                        FilterPill(label: "Offering")
-                        FilterPill(label: "Seeking")
-                        FilterPill(label: "Housing")
-                        FilterPill(label: "Small Job")
-                        FilterPill(label: "Yard Work")
+                        FilterPill(
+                            label: PostIntent.offering.label,
+                            isSelected: selectedIntent == .offering,
+                            action: {
+                                selectedIntent = selectedIntent == .offering ? nil : .offering
+                            }
+                        )
+                        FilterPill(
+                            label: PostIntent.seeking.label,
+                            isSelected: selectedIntent == .seeking,
+                            action: {
+                                selectedIntent = selectedIntent == .seeking ? nil : .seeking
+                            }
+                        )
                     }
                     .padding(.horizontal, 22)
+                    .padding(.vertical, 6)
                 }
-                .padding(.top, 10)
 
                 // Posts scroll
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 14) {
-                        ForEach(posts) { post in
-                            CommunityCard(post: post)
-                                .padding(.horizontal, 20)
+                if postStore.isLoading && postStore.posts.isEmpty {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(1.2)
+                    Spacer()
+                } else if filteredPosts.isEmpty && !postStore.isLoading {
+                    Spacer()
+                    Text("No posts yet — be the first to share something!")
+                        .font(AppTheme.Fonts.roboto(16, weight: .medium))
+                        .foregroundColor(AppTheme.Colors.subtitleGray)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                    Spacer()
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 14) {
+                            ForEach(filteredPosts) { post in
+                                NavigationLink(value: Route.postDetail(post.id.uuidString)) {
+                                    CommunityCard(post: post)
+                                        .padding(.horizontal, 20)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
+                        .padding(.top, 8)
+                        .padding(.bottom, 20)
                     }
-                    .padding(.top, 14)
-                    .padding(.bottom, 20)
+                    .refreshable {
+                        await postStore.fetchPublished()
+                    }
                 }
             }
+        }
+        .task {
+            await postStore.fetchPublished()
+        }
+        .sheet(isPresented: $showCreatePost) {
+            CreatePostView()
+                .environment(postStore)
+                .environment(session)
         }
     }
 }
@@ -55,11 +113,11 @@ struct CommunityCard: View {
     let post: CommunityPost
 
     private var cardBg: Color {
-        post.tag.isSeeking ? AppTheme.Colors.seekingCard : AppTheme.Colors.offeringCard
+        Color(hex: post.intent.cardColorHex)
     }
 
     private var tagColor: Color {
-        post.tag.isSeeking ? AppTheme.Colors.seekingTag : AppTheme.Colors.offeringTag
+        Color(hex: post.intent.tagColorHex)
     }
 
     var body: some View {
@@ -74,25 +132,30 @@ struct CommunityCard: View {
                     .padding(.leading, 4)
 
                 VStack(alignment: .leading, spacing: 4) {
+                    
                     HStack(alignment: .center, spacing: 6) {
-                        Text(post.personName)
-                            .font(AppTheme.Fonts.roboto(24, weight: .bold))
-                            .foregroundColor(.black)
-
-                        Circle()
-                            .fill(Color.black)
-                            .frame(width: 5, height: 5)
-
-                        Text(post.tag.label)
-                            .font(AppTheme.Fonts.roboto(16, weight: .bold))
+                        Text("\(post.intent.label) \(post.subject)")
+                            .font(AppTheme.Fonts.roboto(20, weight: .bold))
                             .foregroundColor(tagColor)
+                            .lineLimit(2)
+                        
+                        Text(post.title)
+                            .font(AppTheme.Fonts.roboto(20, weight: .bold))
+                            .foregroundColor(.black)
+                            .lineLimit(2)
                     }
+                    
+                    
+                    
 
-                    Text(post.motherName)
-                        .font(AppTheme.Fonts.roboto(12))
-                        .foregroundColor(.black.opacity(0.4))
-
-                    LocationLabel(city: post.city)
+                    
+                    if let description = post.description {
+                        Text(description)
+                            .font(AppTheme.Fonts.roboto(12))
+                            .foregroundColor(.gray)
+                            .lineLimit(1)
+                    }
+                    LocationLabel(city: post.location)
                         .padding(.top, 2)
                 }
 
@@ -108,37 +171,62 @@ struct CommunityCard: View {
 // MARK: - Previews
 
 #Preview("Community View") {
-    CommunityView()
+    struct Preview: View {
+        @State var postStore = PostStore.preview
+        @State var session = UserSessionManager()
+        var body: some View {
+            CommunityView()
+                .environment(postStore)
+                .environment(session)
+        }
+    }
+    return Preview()
 }
+
 #Preview("Community Card - Offering Housing") {
     CommunityCard(post: CommunityPost(
-        personName: "Drew",
-        avatarImageName: nil,
-        motherName: "Mother Rebecca Nagel",
-        city: "San Francisco",
-        tag: .offeringHousing
+        id: UUID(),
+        authorId: UUID(),
+        intent: .offering,
+        subject: "Housing",
+        title: "Private room available",
+        description: "Quiet, furnished room near Caltrain.",
+        location: "San Francisco",
+        status: .published,
+        expiresAt: nil,
+        createdAt: Date()
     ))
     .padding()
 }
 
 #Preview("Community Card - Seeking Career Advice") {
     CommunityCard(post: CommunityPost(
-        personName: "Ella",
-        avatarImageName: nil,
-        motherName: "Mother Michelle Coddington",
-        city: "Oakland",
-        tag: .seekingCareerAdvice
+        id: UUID(),
+        authorId: UUID(),
+        intent: .seeking,
+        subject: "Career Advice",
+        title: "Looking for a product design mentor",
+        description: "Recent grad seeking monthly mentorship sessions.",
+        location: "Oakland",
+        status: .published,
+        expiresAt: nil,
+        createdAt: Date()
     ))
     .padding()
 }
 
 #Preview("Community Card - Seeking Work") {
     CommunityCard(post: CommunityPost(
-        personName: "Michael",
-        avatarImageName: nil,
-        motherName: "Mother Sarah Johnson",
-        city: "Berkeley",
-        tag: .seekingWork
+        id: UUID(),
+        authorId: UUID(),
+        intent: .seeking,
+        subject: "Work",
+        title: "Available for part-time contracts",
+        description: "Full-stack developer, React / Swift / Node.",
+        location: "Berkeley",
+        status: .published,
+        expiresAt: nil,
+        createdAt: Date()
     ))
     .padding()
 }
@@ -146,55 +234,40 @@ struct CommunityCard: View {
 #Preview("Community Card - All Types") {
     ScrollView {
         VStack(spacing: 14) {
-            CommunityCard(post: CommunityPost(
-                personName: "Drew",
-                avatarImageName: nil,
-                motherName: "Mother Rebecca Nagel",
-                city: "San Francisco",
-                tag: .offeringHousing
-            ))
-            
-            CommunityCard(post: CommunityPost(
-                personName: "Ella",
-                avatarImageName: nil,
-                motherName: "Mother Michelle Coddington",
-                city: "Oakland",
-                tag: .seekingCareerAdvice
-            ))
-            
-            CommunityCard(post: CommunityPost(
-                personName: "Alex",
-                avatarImageName: nil,
-                motherName: "Mother Jennifer Smith",
-                city: "Berkeley",
-                tag: .seekingHousing
-            ))
-            
-            CommunityCard(post: CommunityPost(
-                personName: "Jordan",
-                avatarImageName: nil,
-                motherName: "Mother Patricia Lee",
-                city: "San Jose",
-                tag: .seekingWork
-            ))
+            ForEach(SampleData.communityPosts) { post in
+                CommunityCard(post: post)
+            }
         }
         .padding(20)
     }
 }
 
-#Preview("Community Card - Long Names") {
+#Preview("Community Card - Long Title") {
     CommunityCard(post: CommunityPost(
-        personName: "Christopher Alexander",
-        avatarImageName: nil,
-        motherName: "Mother Elizabeth Catherine Thompson",
-        city: "San Francisco",
-        tag: .seekingCareerAdvice
+        id: UUID(),
+        authorId: UUID(),
+        intent: .seeking,
+        subject: "Career Advice",
+        title: "Seeking an experienced mentor for a long-term professional growth journey",
+        description: "Looking for someone with deep expertise in product strategy.",
+        location: "San Francisco",
+        status: .published,
+        expiresAt: nil,
+        createdAt: Date()
     ))
     .padding()
 }
 
 #Preview("Community - Dark Mode") {
-    CommunityView()
-        .preferredColorScheme(.dark)
+    struct Preview: View {
+        @State var postStore = PostStore.preview
+        @State var session = UserSessionManager()
+        var body: some View {
+            CommunityView()
+                .environment(postStore)
+                .environment(session)
+                .preferredColorScheme(.dark)
+        }
+    }
+    return Preview()
 }
-

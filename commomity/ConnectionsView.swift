@@ -101,7 +101,7 @@ struct ExtendCommunityCard: View {
 
 // MARK: - Connection Row
 struct ConnectionRow: View {
-    let connection: Connection
+    let connection: DisplayConnection
 
     var body: some View {
         HStack(spacing: 14) {

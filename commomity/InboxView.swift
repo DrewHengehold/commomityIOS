@@ -1,52 +1,98 @@
 import SwiftUI
 
 struct InboxView: View {
-    let messages = SampleData.inboxMessages
+    @Environment(UserSessionManager.self) private var session
+    @State private var chatState = ChatState()
+    @State private var selectedConversation: Conversation?
 
     var body: some View {
         ZStack(alignment: .top) {
             Color.white.ignoresSafeArea()
 
             VStack(spacing: 0) {
+                header
 
-                // Header row
-                HStack {
-                    HamburgerIcon()
-                        .padding(.leading, 29)
-
-                    Spacer()
-
-                    Text("Inbox")
-                        .font(AppTheme.Fonts.playfair(36))
-                        .foregroundColor(.black)
-
-                    Spacer()
-
-                    // Compose button
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color(hex: "#F7F7F7"))
-                            .frame(width: 35, height: 35)
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(.black.opacity(0.85))
-                    }
-                    .padding(.trailing, 28)
-                }
-                .padding(.top, 14)
-
-                // Divider
                 Rectangle()
                     .fill(Color.black)
                     .frame(height: 1)
                     .padding(.top, 8)
 
-                // Message list
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                            InboxRow(message: message)
+                conversationList
+            }
+        }
+        .onAppear {
+            if let userId = session.currentUserId?.uuidString {
+                chatState.subscribeToInbox(userId: userId)
+            }
+        }
+        .onDisappear {
+            chatState.unsubscribeInbox()
+        }
+        .fullScreenCover(item: $selectedConversation) { conversation in
+            let currentId = session.currentUserId?.uuidString ?? ""
+            let title = conversation.displayName(currentUserId: currentId)
+            ChatView(
+                conversationTitle: title,
+                conversationId: conversation.id,
+                isGroup: conversation.participants.count > 2,
+                onDismiss: { selectedConversation = nil }
+            )
+        }
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack {
+            HamburgerIcon()
+                .padding(.leading, 29)
+
+            Spacer()
+
+            Text("Inbox")
+                .font(AppTheme.Fonts.playfair(36))
+                .foregroundColor(.black)
+
+            Spacer()
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(hex: "#F7F7F7"))
+                    .frame(width: 35, height: 35)
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(.black.opacity(0.85))
+            }
+            .padding(.trailing, 28)
+        }
+        .padding(.top, 14)
+    }
+
+    // MARK: - Conversation List
+
+    @ViewBuilder
+    private var conversationList: some View {
+        if chatState.isLoadingConversations {
+            Spacer()
+            ProgressView()
+            Spacer()
+        } else if chatState.conversations.isEmpty {
+            Spacer()
+            Text("No messages yet")
+                .font(AppTheme.Fonts.roboto(16))
+                .foregroundColor(AppTheme.Colors.subtitleGray)
+            Spacer()
+        } else {
+            ScrollView {
+                VStack(spacing: 0) {
+                    let currentId = session.currentUserId?.uuidString ?? ""
+                    ForEach(chatState.conversations) { conversation in
+                        Button {
+                            selectedConversation = conversation
+                        } label: {
+                            InboxRow(message: conversation.toInboxMessage(currentUserId: currentId))
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -54,18 +100,51 @@ struct InboxView: View {
     }
 }
 
+// MARK: - Conversation → InboxMessage
+
+extension Conversation {
+    /// Display name shown in the inbox row. Lists the other participants' names.
+    func displayName(currentUserId: String) -> String {
+        let others = participants.filter { $0 != currentUserId }
+        let names = others.compactMap { participantNames?[$0] }
+        return names.isEmpty ? "Unknown" : names.joined(separator: ", ")
+    }
+
+    func toInboxMessage(currentUserId: String) -> InboxMessage {
+        InboxMessage(
+            id: UUID(),
+            conversationId: firestoreId ?? "",
+            senderName: displayName(currentUserId: currentUserId),
+            avatarImageName: nil,
+            intent: nil,
+            subject: nil,
+            preview: lastMessage.isEmpty ? "No messages yet" : lastMessage,
+            timestamp: Self.formatTimestamp(lastMessageAt),
+            isGroup: participants.count > 2,
+            groupAvatars: []
+        )
+    }
+
+    private static func formatTimestamp(_ date: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(date) {
+            return date.formatted(date: .omitted, time: .shortened)
+        } else if cal.isDateInYesterday(date) {
+            return "Yesterday"
+        } else {
+            return date.formatted(.dateTime.month(.abbreviated).day())
+        }
+    }
+}
+
 // MARK: - Inbox Row
+
 struct InboxRow: View {
     let message: InboxMessage
-
-    private var tagColor: Color {
-        message.tag.isSeeking ? AppTheme.Colors.seekingTag : AppTheme.Colors.offeringTag
-    }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
-                // Avatar(s)
                 avatarSection
                     .frame(width: 70)
 
@@ -80,10 +159,10 @@ struct InboxRow: View {
                             .foregroundColor(AppTheme.Colors.subtitleGray)
                     }
 
-                    if message.tag != .none {
-                        Text(message.tag.label)
+                    if let intent = message.intent, let subject = message.subject {
+                        Text("\(intent.label) \(subject)")
                             .font(AppTheme.Fonts.roboto(15, weight: .bold))
-                            .foregroundColor(tagColor)
+                            .foregroundColor(Color(hex: intent.tagColorHex))
                     }
 
                     Text(message.preview)
@@ -96,7 +175,6 @@ struct InboxRow: View {
             .padding(.horizontal, 9)
             .padding(.vertical, 12)
 
-            // Separator
             Rectangle()
                 .fill(Color(hex: "#BABABA"))
                 .frame(height: 1)
@@ -107,15 +185,11 @@ struct InboxRow: View {
     @ViewBuilder
     private var avatarSection: some View {
         if message.isGroup {
-            // Overlapping avatar cluster
             ZStack {
-                // Back avatar
                 Circle()
                     .fill(AppTheme.Colors.tileBackground)
                     .frame(width: 34, height: 34)
                     .offset(x: -8, y: -4)
-
-                // Front avatar
                 Circle()
                     .fill(AppTheme.Colors.tileBackground)
                     .frame(width: 30, height: 30)
@@ -128,138 +202,43 @@ struct InboxRow: View {
     }
 }
 
-extension MessageTag {
-    static func != (lhs: MessageTag, rhs: MessageTag) -> Bool {
-        switch (lhs, rhs) {
-        case (.none, .none): return false
-        default: return true
-        }
-    }
-}
-
 // MARK: - Previews
 
 #Preview("Inbox View") {
+    let session = UserSessionManager()
     InboxView()
+        .environment(session)
 }
-#Preview("Inbox Row - Single User with Seeking Tag") {
+
+#Preview("Inbox Row - Single") {
     InboxRow(message: InboxMessage(
-        senderName: "Drew Hengehold",
-        avatarImageName: nil,
-        tag: .seekingHousing,
-        preview: "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor...",
-        timestamp: "8:33 AM",
-        isGroup: false,
-        groupAvatars: []
+        id: UUID(), conversationId: "c1",
+        senderName: "Drew Hengehold", avatarImageName: nil,
+        intent: .seeking, subject: "Housing",
+        preview: "Hey, I saw your post about the spare room — is it still available?",
+        timestamp: "8:33 AM", isGroup: false, groupAvatars: []
     ))
     .padding()
 }
 
-#Preview("Inbox Row - Group with Offering Tag") {
+#Preview("Inbox Row - Group") {
     InboxRow(message: InboxMessage(
-        senderName: "Mac, Ella, Drew, Emma...",
-        avatarImageName: nil,
-        tag: .offeringWork,
-        preview: "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-        timestamp: "Yesterday",
-        isGroup: true,
-        groupAvatars: []
+        id: UUID(), conversationId: "c2",
+        senderName: "Mac, Ella, Drew, Emma...", avatarImageName: nil,
+        intent: .offering, subject: "Work",
+        preview: "Welcome to the Petaluma Commomity group chat!",
+        timestamp: "Yesterday", isGroup: true, groupAvatars: []
     ))
     .padding()
 }
 
 #Preview("Inbox Row - No Tag") {
     InboxRow(message: InboxMessage(
-        senderName: "Sarah Johnson",
-        avatarImageName: nil,
-        tag: .none,
+        id: UUID(), conversationId: "c3",
+        senderName: "Sarah Johnson", avatarImageName: nil,
+        intent: nil, subject: nil,
         preview: "Hey! Just wanted to check in and see how things are going.",
-        timestamp: "2 days ago",
-        isGroup: false,
-        groupAvatars: []
+        timestamp: "2 days ago", isGroup: false, groupAvatars: []
     ))
     .padding()
 }
-
-#Preview("Inbox Row - All Tag Types") {
-    VStack(spacing: 0) {
-        InboxRow(message: InboxMessage(
-            senderName: "John Seeking Housing",
-            avatarImageName: nil,
-            tag: .seekingHousing,
-            preview: "Looking for a place to stay in San Francisco.",
-            timestamp: "Now",
-            isGroup: false,
-            groupAvatars: []
-        ))
-        
-        InboxRow(message: InboxMessage(
-            senderName: "Jane Offering Housing",
-            avatarImageName: nil,
-            tag: .offeringHousing,
-            preview: "I have a spare room available starting next month.",
-            timestamp: "5m ago",
-            isGroup: false,
-            groupAvatars: []
-        ))
-        
-        InboxRow(message: InboxMessage(
-            senderName: "Mike Career Advice",
-            avatarImageName: nil,
-            tag: .seekingCareerAdvice,
-            preview: "Could really use some guidance on my career path.",
-            timestamp: "1h ago",
-            isGroup: false,
-            groupAvatars: []
-        ))
-        
-        InboxRow(message: InboxMessage(
-            senderName: "Emily Work Group",
-            avatarImageName: nil,
-            tag: .seekingWork,
-            preview: "Currently looking for opportunities in tech.",
-            timestamp: "3h ago",
-            isGroup: true,
-            groupAvatars: []
-        ))
-        
-        InboxRow(message: InboxMessage(
-            senderName: "Tom Offering Work",
-            avatarImageName: nil,
-            tag: .offeringWork,
-            preview: "We're hiring! Multiple positions available.",
-            timestamp: "Yesterday",
-            isGroup: false,
-            groupAvatars: []
-        ))
-    }
-}
-
-#Preview("Inbox Row - Long Content Test") {
-    InboxRow(message: InboxMessage(
-        senderName: "Very Long Name That Should Be Truncated Eventually",
-        avatarImageName: nil,
-        tag: .seekingCareerAdvice,
-        preview: "This is a very long preview message that should wrap to multiple lines and then be truncated after the second line. It contains a lot of text to test the layout behavior when messages are particularly verbose and detailed.",
-        timestamp: "12:45 PM",
-        isGroup: true,
-        groupAvatars: []
-    ))
-    .padding()
-}
-
-#Preview("Inbox - Dark Mode") {
-    InboxView()
-        .preferredColorScheme(.dark)
-}
-
-#Preview("Inbox Row - Isolated for Testing") {
-    ZStack {
-        Color.white.ignoresSafeArea()
-        VStack {
-            InboxRow(message: SampleData.inboxMessages[0])
-            Spacer()
-        }
-    }
-}
-
