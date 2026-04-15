@@ -9,7 +9,7 @@ struct ContentView: View {
     var body: some View {
         @Bindable var router = router
         Group {
-            if onboardingState.isComplete || session.isAuthenticated {
+            if onboardingState.isComplete {
                 NavigationStack(path: $router.navigationPath) {
                     mainApp
                         .toolbar(.hidden, for: .navigationBar)

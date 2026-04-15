@@ -398,10 +398,11 @@ private struct SubjectPill: View {
 // MARK: - MyPostsView
 
 struct MyPostsView: View {
+    @Environment(PostStore.self) private var postStore
     @State private var selectedStatus: PostStatus = .published
 
     var filteredPosts: [CommunityPost] {
-        SampleData.communityPosts.filter { $0.status == selectedStatus }
+        postStore.posts.filter { $0.status == selectedStatus }
     }
 
     var body: some View {
@@ -443,8 +444,13 @@ struct MyPostsView: View {
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 14) {
                             ForEach(filteredPosts) { post in
-                                MyPostCard(post: post, status: selectedStatus)
-                                    .padding(.horizontal, 20)
+                                MyPostCard(
+                                    post: post,
+                                    status: selectedStatus,
+                                    onPublish: { Task { await postStore.publishPost(id: post.id) } },
+                                    onFulfill: { Task { await postStore.fulfillPost(id: post.id) } }
+                                )
+                                .padding(.horizontal, 20)
                             }
                         }
                         .padding(.top, 16)
@@ -476,6 +482,8 @@ struct MyPostsView: View {
 private struct MyPostCard: View {
     let post: CommunityPost
     let status: PostStatus
+    var onPublish: () -> Void = {}
+    var onFulfill: () -> Void = {}
 
     private var cardBg: Color { Color(hex: post.intent.cardColorHex) }
     private var tagColor: Color { Color(hex: post.intent.tagColorHex) }
@@ -509,7 +517,7 @@ private struct MyPostCard: View {
         switch status {
         case .draft:
             Button {
-                print("TODO: Publish draft post id: \(post.id)")
+                onPublish()
             } label: {
                 Label("Publish", systemImage: "arrow.up.circle.fill")
                     .font(AppTheme.Fonts.roboto(14, weight: .bold))
@@ -525,7 +533,7 @@ private struct MyPostCard: View {
 
         case .published:
             Button {
-                print("TODO: Mark post fulfilled id: \(post.id)")
+                onFulfill()
             } label: {
                 Label("Mark Fulfilled", systemImage: "checkmark.circle.fill")
                     .font(AppTheme.Fonts.roboto(14, weight: .bold))
