@@ -30,11 +30,11 @@ final class PostStore {
 
     // MARK: - Remote Fetch
 
-    func fetchPublished() async {
+    func fetchPublished(city: String = "") async {
         isLoading = true
         defer { isLoading = false }
         do {
-            posts = try await SupabaseService.shared.fetchPublishedPosts()
+            posts = try await SupabaseService.shared.fetchPublishedPosts(city: city)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -52,13 +52,14 @@ final class PostStore {
     ) async {
         do {
             let post = try await SupabaseService.shared.createPost(
+                authorId: authorId,
                 intent: intent,
                 subject: subject,
                 title: title,
                 description: description.isEmpty ? nil : description,
                 location: location,
-                authorId: authorId,
-                status: .draft
+                status: .draft,
+                expiresAt: nil
             )
             posts.append(post)
         } catch {
@@ -76,13 +77,14 @@ final class PostStore {
     ) async {
         do {
             let post = try await SupabaseService.shared.createPost(
+                authorId: authorId,
                 intent: intent,
                 subject: subject,
                 title: title,
                 description: description.isEmpty ? nil : description,
                 location: location,
-                authorId: authorId,
-                status: .published
+                status: .published,
+                expiresAt: nil
             )
             posts.append(post)
         } catch {

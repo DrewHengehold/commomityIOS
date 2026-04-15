@@ -1,19 +1,23 @@
 import SwiftUI
 import MapKit
+import CoreLocation
 
 struct MapView: View {
-    @State private var region = MKCoordinateRegion(
+    @Environment(UserSessionManager.self) private var session
+
+    @State private var position: MapCameraPosition = .region(MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 37.8716, longitude: -122.2727),
-        span: MKCoordinateSpan(latitudeDelta: 0.5, longitudeDelta: 0.5)
-    )
+        span: MKCoordinateSpan(latitudeDelta: 1.5, longitudeDelta: 1.5)
+    ))
     @State private var searchText        = ""
     @State private var availableCities: [String] = []
     @State private var selectedCity: String?      = nil
     @State private var cityMembers: [DisplayConnection] = []
     @State private var isLoadingCities  = false
     @State private var isLoadingMembers = false
+    @State private var joinedCities: Set<String>  = []
+    @State private var isJoining        = false
 
-    // City list filtered by what the user types in the search bar
     private var filteredCities: [String] {
         guard !searchText.isEmpty else { return availableCities }
         return availableCities.filter { $0.localizedCaseInsensitiveContains(searchText) }
@@ -21,36 +25,44 @@ struct MapView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // Full-screen map background
-            Map(coordinateRegion: $region)
-                .ignoresSafeArea()
-                .cornerRadius(AppTheme.cornerRadius)
 
+            // ── Full-screen map ───────────────────────────────────────────
+            Map(position: $position)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    // Dismiss panel on map tap
+                    if selectedCity != nil {
+                        selectedCity = nil
+                        cityMembers  = []
+                    }
+                }
+
+            // ── Overlay UI ────────────────────────────────────────────────
             VStack(spacing: 0) {
 
-                // ── Title ────────────────────────────────────────────────
+                // Title
                 HStack {
                     Text("Community Finder")
-                        .font(AppTheme.Fonts.playfair(36, weight: .bold))
+                        .font(AppTheme.Fonts.playfair(32, weight: .bold))
                         .foregroundColor(.black)
-                        .padding(.leading, 9)
+                        .padding(.leading, 12)
                     Spacer()
                 }
                 .padding(.top, 10)
+                .padding(.bottom, 6)
 
-                // ── Divider ──────────────────────────────────────────────
+                // Divider
                 Rectangle()
                     .fill(Color.black)
                     .frame(height: 1)
-                    .padding(.top, 4)
 
-                // ── Search bar ───────────────────────────────────────────
+                // Search bar
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 16))
                         .foregroundColor(Color(hex: "#060101"))
                     TextField("search city…", text: $searchText)
-                        .font(AppTheme.Fonts.playfair(24))
+                        .font(AppTheme.Fonts.playfair(20))
                         .foregroundColor(Color(hex: "#160606"))
                         .autocorrectionDisabled()
                     if !searchText.isEmpty {
@@ -64,19 +76,20 @@ struct MapView: View {
                 .frame(height: 40)
                 .background(
                     RoundedRectangle(cornerRadius: 50)
-                        .fill(Color.white.opacity(0.49))
+                        .fill(Color.white.opacity(0.9))
                         .overlay(
                             RoundedRectangle(cornerRadius: 50)
                                 .strokeBorder(Color(hex: "#D8D8D8"), lineWidth: 2.3)
                         )
                 )
-                .padding(.horizontal, 21)
+                .padding(.horizontal, 20)
                 .padding(.top, 10)
 
-                // ── City picker pills ─────────────────────────────────────
+                // City pills
                 CityPickerRow(
                     cities:       filteredCities,
                     selectedCity: selectedCity,
+                    joinedCities: joinedCities,
                     isLoading:    isLoadingCities,
                     onSelect: { city in
                         if selectedCity == city {
@@ -84,35 +97,44 @@ struct MapView: View {
                             cityMembers  = []
                         } else {
                             selectedCity = city
-                            Task { await loadMembers(for: city) }
+                            Task {
+                                await loadMembers(for: city)
+                                await flyTo(city: city)
+                            }
                         }
                     }
                 )
                 .padding(.top, 8)
 
                 Spacer()
+            }
 
-                // ── City members popup ────────────────────────────────────
-                if let city = selectedCity {
-                    HStack {
-                        Spacer()
-                        CityMembersPopup(
-                            cityName:  city,
-                            members:   cityMembers,
-                            isLoading: isLoadingMembers,
-                            onClose: {
-                                selectedCity = nil
-                                cityMembers  = []
-                            }
-                        )
-                        .padding(.trailing, 18)
-                    }
-                    .padding(.bottom, 20)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            // ── Bottom panel ──────────────────────────────────────────────
+            if let city = selectedCity {
+                VStack {
+                    Spacer()
+                    CityBottomPanel(
+                        cityName:    city,
+                        members:     cityMembers,
+                        isLoading:   isLoadingMembers,
+                        isJoined:    joinedCities.contains(city),
+                        isJoining:   isJoining,
+                        onClose: {
+                            selectedCity = nil
+                            cityMembers  = []
+                        },
+                        onJoin: {
+                            Task { await joinCity(city) }
+                        }
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 24)
                 }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(1)
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: selectedCity)
+        .animation(.spring(response: 0.38, dampingFraction: 0.82), value: selectedCity)
         .task { await loadCities() }
     }
 
@@ -123,7 +145,10 @@ struct MapView: View {
         defer { isLoadingCities = false }
         do {
             let cities = try await SupabaseService.shared.fetchAvailableCities()
-            availableCities = cities.isEmpty ? SampleData.fallbackCities : cities
+            // Merge live DB cities with the broad fallback list so every city
+            // is discoverable even before anyone registers there.
+            let merged = Array(Set(cities + SampleData.fallbackCities)).sorted()
+            availableCities = merged
         } catch {
             availableCities = SampleData.fallbackCities
         }
@@ -136,8 +161,38 @@ struct MapView: View {
         do {
             cityMembers = try await SupabaseService.shared.fetchUsersInCity(city)
         } catch {
-            // Fall back to filtered sample data while DB is being populated
             cityMembers = SampleData.mapCommunity.members.filter { $0.city == city }
+        }
+    }
+
+    private func flyTo(city: String) async {
+        await withCheckedContinuation { continuation in
+            CLGeocoder().geocodeAddressString(city) { placemarks, _ in
+                if let coord = placemarks?.first?.location?.coordinate {
+                    Task { @MainActor in
+                        withAnimation(.easeInOut(duration: 0.7)) {
+                            position = .region(MKCoordinateRegion(
+                                center: coord,
+                                span: MKCoordinateSpan(latitudeDelta: 0.15, longitudeDelta: 0.15)
+                            ))
+                        }
+                    }
+                }
+                continuation.resume()
+            }
+        }
+    }
+
+    private func joinCity(_ city: String) async {
+        guard let userId = session.currentUserId else { return }
+        isJoining = true
+        defer { isJoining = false }
+        do {
+            try await SupabaseService.shared.addUserLocation(userId: userId, city: city)
+            joinedCities.insert(city)
+        } catch {
+            // Stub not yet implemented — optimistically mark joined for now
+            joinedCities.insert(city)
         }
     }
 }
@@ -147,6 +202,7 @@ struct MapView: View {
 private struct CityPickerRow: View {
     let cities:       [String]
     let selectedCity: String?
+    let joinedCities: Set<String>
     let isLoading:    Bool
     let onSelect:     (String) -> Void
 
@@ -166,12 +222,14 @@ private struct CityPickerRow: View {
                         CityPill(
                             label:      city,
                             isSelected: city == selectedCity,
+                            isJoined:   joinedCities.contains(city),
                             onTap:      { onSelect(city) }
                         )
                     }
                 }
             }
-            .padding(.horizontal, 21)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 6)
         }
     }
 }
@@ -181,155 +239,192 @@ private struct CityPickerRow: View {
 private struct CityPill: View {
     let label:      String
     let isSelected: Bool
+    let isJoined:   Bool
     let onTap:      () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            Text(label)
-                .font(AppTheme.Fonts.roboto(14, weight: isSelected ? .bold : .medium))
-                .foregroundColor(isSelected ? .white : Color(hex: "#301D2E"))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 50)
-                        .fill(isSelected
-                              ? AppTheme.Colors.offeringTag
-                              : Color.white.opacity(0.85))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 50)
-                                .strokeBorder(
-                                    isSelected ? Color.clear : Color(hex: "#D8D8D8"),
-                                    lineWidth: 1.5
-                                )
-                        )
-                )
-                .shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 2)
+            HStack(spacing: 5) {
+                if isJoined {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(isSelected ? .white : AppTheme.Colors.offeringTag)
+                }
+                Text(label)
+                    .font(AppTheme.Fonts.roboto(14, weight: isSelected ? .bold : .medium))
+                    .foregroundColor(isSelected ? .white : Color(hex: "#301D2E"))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 50)
+                    .fill(isSelected
+                          ? AppTheme.Colors.offeringTag
+                          : Color.white.opacity(0.9))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 50)
+                            .strokeBorder(
+                                isSelected
+                                    ? Color.clear
+                                    : (isJoined
+                                       ? AppTheme.Colors.offeringTag
+                                       : Color(hex: "#D8D8D8")),
+                                lineWidth: 1.5
+                            )
+                    )
+            )
+            .shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 2)
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.15), value: isSelected)
     }
 }
 
-// MARK: - City Members Popup
+// MARK: - City Bottom Panel
 
-/// Styled after the existing CommunityPopup — dark-gray card, city name,
-/// member count, scrollable MemberTile list.
-struct CityMembersPopup: View {
+struct CityBottomPanel: View {
     let cityName:  String
     let members:   [DisplayConnection]
     let isLoading: Bool
+    let isJoined:  Bool
+    let isJoining: Bool
     let onClose:   () -> Void
+    let onJoin:    () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            ZStack(alignment: .top) {
-                RoundedRectangle(cornerRadius: AppTheme.cornerRadius)
-                    .fill(AppTheme.Colors.mapPopupBg)
-                    .frame(width: 240)
+        VStack(alignment: .leading, spacing: 14) {
 
-                VStack(alignment: .leading, spacing: 6) {
+            // ── Header row ────────────────────────────────────────────────
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(cityName)
+                        .font(AppTheme.Fonts.playfair(26, weight: .bold))
+                        .foregroundColor(.black)
+                    Text(isLoading ? "Loading…" : "\(members.count) member\(members.count == 1 ? "" : "s")")
+                        .font(AppTheme.Fonts.roboto(13))
+                        .foregroundColor(AppTheme.Colors.subtitleGray)
+                }
 
-                    // Header: city name + dismiss button
-                    HStack(alignment: .top) {
-                        Text(cityName)
-                            .font(AppTheme.Fonts.roboto(20, weight: .bold))
-                            .foregroundColor(.white)
-                        Spacer()
-                        Button(action: onClose) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(Color(hex: "#9D9D9D"))
+                Spacer()
+
+                // Join / Joined button
+                Button(action: onJoin) {
+                    HStack(spacing: 5) {
+                        if isJoining {
+                            ProgressView()
+                                .scaleEffect(0.75)
+                                .tint(.white)
+                        } else if isJoined {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 11, weight: .bold))
                         }
-                    }
-                    .padding(.top, 16)
-                    .padding(.horizontal, 14)
-
-                    // Member count / loading indicator
-                    if isLoading {
-                        ProgressView()
-                            .tint(.white)
-                            .padding(.horizontal, 14)
-                    } else {
-                        Text("\(members.count) member\(members.count == 1 ? "" : "s")")
+                        Text(isJoined ? "Joined" : "Join")
                             .font(AppTheme.Fonts.roboto(14, weight: .bold))
-                            .foregroundColor(Color(hex: "#9D9D9D"))
-                            .padding(.horizontal, 14)
                     }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 50)
+                            .fill(isJoined
+                                  ? AppTheme.Colors.subtitleGray
+                                  : AppTheme.Colors.offeringTag)
+                    )
+                }
+                .disabled(isJoined || isJoining)
 
-                    // Member list
-                    if isLoading {
-                        Color.clear.frame(height: 60)
-                    } else if members.isEmpty {
-                        Text("No members found in this city.")
-                            .font(AppTheme.Fonts.roboto(13))
-                            .foregroundColor(Color(hex: "#9D9D9D"))
-                            .padding(.horizontal, 14)
-                            .padding(.bottom, 14)
-                    } else {
-                        ScrollView(showsIndicators: false) {
-                            VStack(spacing: 8) {
-                                ForEach(members) { member in
-                                    MemberTile(member: member)
-                                }
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.bottom, 14)
+                // Dismiss button
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color(hex: "#6B6B6B"))
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Color(hex: "#F0F0F0")))
+                }
+                .padding(.leading, 6)
+            }
+
+            // ── Member cards ──────────────────────────────────────────────
+            if isLoading {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .frame(height: 90)
+                    Spacer()
+                }
+            } else if members.isEmpty {
+                Text("No members in \(cityName) yet — be the first to join!")
+                    .font(AppTheme.Fonts.roboto(14))
+                    .foregroundColor(AppTheme.Colors.subtitleGray)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(height: 72)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(members) { member in
+                            MemberCard(member: member)
                         }
-                        .frame(maxHeight: 280)
                     }
+                    .padding(.vertical, 4)
                 }
             }
-            .frame(width: 240)
-
-            // Callout pointer (matches the original CommunityPopup)
-            Rectangle()
-                .fill(AppTheme.Colors.mapPopupBg)
-                .frame(width: 16.5, height: 48.5)
-                .offset(x: -95)
         }
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+        .padding(.bottom, 20)
+        .background(
+            RoundedRectangle(cornerRadius: 24)
+                .fill(Color.white)
+                .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: -4)
+        )
     }
 }
 
-// MARK: - Member Tile
+// MARK: - Member Card  (horizontal scroll tile)
 
-struct MemberTile: View {
+struct MemberCard: View {
     let member: DisplayConnection
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 20)
-                .fill(AppTheme.Colors.tileBackground)
-                .frame(height: 50)
+        VStack(spacing: 8) {
+            AvatarCircle(size: 54)
 
-            HStack(spacing: 10) {
-                AvatarCircle(size: 42)
-                    .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 2)
+            VStack(spacing: 2) {
+                Text(member.name.components(separatedBy: " ").first ?? member.name)
+                    .font(AppTheme.Fonts.roboto(13, weight: .bold))
+                    .foregroundColor(.black)
+                    .lineLimit(1)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(member.name)
-                        .font(AppTheme.Fonts.roboto(16, weight: .medium))
-                        .foregroundColor(.black)
-                        .lineLimit(1)
-                    Text("\(member.role) – \(member.profession)")
-                        .font(AppTheme.Fonts.roboto(12, weight: .medium))
-                        .foregroundColor(AppTheme.Colors.connectionBlue)
-                        .lineLimit(1)
-                }
-                Spacer()
+                Text(member.profession)
+                    .font(AppTheme.Fonts.roboto(11))
+                    .foregroundColor(AppTheme.Colors.subtitleGray)
+                    .lineLimit(1)
+
+                Text(member.role)
+                    .font(AppTheme.Fonts.roboto(11, weight: .medium))
+                    .foregroundColor(AppTheme.Colors.connectionBlue)
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 8)
         }
+        .frame(width: 80)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(hex: "#F7F7F7"))
+        )
     }
 }
 
-// MARK: - Fallback cities (used when Supabase returns nothing yet)
-
-extension SampleData {
-    static let fallbackCities = [
-        "San Francisco", "Oakland", "Berkeley", "Petaluma", "San Jose"
-    ]
-}
+// MARK: - Preview
 
 #Preview {
-    MapView()
+    struct Preview: View {
+        @State var session = UserSessionManager()
+        var body: some View {
+            MapView()
+                .environment(session)
+        }
+    }
+    return Preview()
 }

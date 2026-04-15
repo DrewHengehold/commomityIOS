@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		FA000001FA000001FA000001 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = FA000002FA000002FA000002 /* FirebaseCore */; };
+		FA000003FA000003FA000003 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = FA000004FA000004FA000004 /* FirebaseFirestore */; };
+		FA000006FA000006FA000006 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = FA000007FA000007FA000007 /* Supabase */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		587F8BA62F6DF1280072D88B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,9 +35,22 @@
 		587F8BAF2F6DF1280072D88B /* commomityUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = commomityUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		FA000010FA000010FA000010 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 587F8B922F6DF1260072D88B /* commomity */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		587F8B952F6DF1260072D88B /* commomity */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				FA000010FA000010FA000010 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+			);
 			path = commomity;
 			sourceTree = "<group>";
 		};
@@ -52,6 +71,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FA000001FA000001FA000001 /* FirebaseCore in Frameworks */,
+				FA000003FA000003FA000003 /* FirebaseFirestore in Frameworks */,
+				FA000006FA000006FA000006 /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +134,9 @@
 			);
 			name = commomity;
 			packageProductDependencies = (
+				FA000002FA000002FA000002 /* FirebaseCore */,
+				FA000004FA000004FA000004 /* FirebaseFirestore */,
+				FA000007FA000007FA000007 /* Supabase */,
 			);
 			productName = commomity;
 			productReference = 587F8B932F6DF1260072D88B /* commomity.app */;
@@ -195,6 +220,10 @@
 			);
 			mainGroup = 587F8B8A2F6DF1260072D88B;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				FA000005FA000005FA000005 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				FA000008FA000008FA000008 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 587F8B942F6DF1260072D88B /* Products */;
 			projectDirPath = "";
@@ -396,12 +425,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = commomity/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -427,12 +452,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = commomity/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -570,6 +591,43 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		FA000005FA000005FA000005 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.0.0;
+			};
+		};
+		FA000008FA000008FA000008 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		FA000002FA000002FA000002 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FA000005FA000005FA000005 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		FA000004FA000004FA000004 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FA000005FA000005FA000005 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		FA000007FA000007FA000007 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FA000008FA000008FA000008 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 587F8B8B2F6DF1260072D88B /* Project object */;
 }

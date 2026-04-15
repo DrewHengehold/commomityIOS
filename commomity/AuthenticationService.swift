@@ -32,7 +32,7 @@ final class AuthenticationService: AuthServiceProtocol {
     var isLoading: Bool = false
     private(set) var errorMessage: String? = nil
 
-    private let client = AppConfig.supabase
+    private let client = supabase
 
     // MARK: - Sign Up
 
@@ -49,20 +49,14 @@ final class AuthenticationService: AuthServiceProtocol {
         defer { isLoading = false }
         do {
             let response = try await client.auth.signUp(email: email, password: password)
-            guard let user = response.user else {
-                errorMessage = "Sign-up failed — no user returned."
-                return
-            }
+            let user = response.user
             let userId = UUID(uuidString: user.id.uuidString) ?? UUID()
-            try await SupabaseService.shared.createUser(
-                id: userId, email: email, role: role, fullName: fullName
+            try await SupabaseService.shared.updateUserProfile(
+                id: userId, fullName: fullName, bio: nil, avatarURL: nil
             )
             try await SupabaseService.shared.addUserLocation(
                 userId: userId, city: primaryCity, isPrimary: true
             )
-            if !skills.isEmpty {
-                try await SupabaseService.shared.addUserSkills(userId: userId, skillNames: skills)
-            }
             currentUserId = userId
             isAuthenticated = true
         } catch {
@@ -99,9 +93,11 @@ final class AuthenticationService: AuthServiceProtocol {
             let userId = UUID(uuidString: session.user.id.uuidString) ?? UUID()
             currentUserId = userId
             isAuthenticated = true
-            // Persist name + email on first sign-in when Apple provides them.
+            // Persist name on first sign-in when Apple provides it.
             if let name = fullName, !name.isEmpty {
-                try? await SupabaseService.shared.updateUserName(userId: userId, fullName: name)
+                try? await SupabaseService.shared.updateUserProfile(
+                    id: userId, fullName: name, bio: nil, avatarURL: nil
+                )
             }
         } catch {
             errorMessage = error.localizedDescription

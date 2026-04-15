@@ -12,27 +12,7 @@ struct HamburgerIcon: View {
 }
 
 // MARK: - Bottom Navigation Bar
-enum NavTab: Int, CaseIterable {
-    case home, inbox, connections, map
-
-    var iconName: String {
-        switch self {
-        case .home:        return "house.fill"
-        case .inbox:       return "tray.fill"
-        case .connections: return "person.2.fill"
-        case .map:         return "map.fill"
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .home:        return "Home"
-        case .inbox:       return "Inbox"
-        case .connections: return "Connections"
-        case .map:         return "Map"
-        }
-    }
-}
+// NavTab enum is defined in Models.swift
 
 struct BottomNavBar: View {
     @Binding var selectedTab: NavTab
@@ -41,7 +21,6 @@ struct BottomNavBar: View {
         ZStack {
             RoundedRectangle(cornerRadius: 50)
                 .fill(AppTheme.Colors.navBar)
-                .frame(height: 82.5)
 
             HStack(spacing: 0) {
                 ForEach(NavTab.allCases, id: \.rawValue) { tab in
@@ -52,19 +31,22 @@ struct BottomNavBar: View {
                             if selectedTab == tab {
                                 RoundedRectangle(cornerRadius: 50)
                                     .fill(AppTheme.Colors.navBarSelected)
-                                    .frame(width: 106, height: 74)
+                                    .padding(.horizontal, 4)
                             }
                             Image(systemName: tab.iconName)
                                 .font(.system(size: 22, weight: .semibold))
                                 .foregroundColor(.black.opacity(0.85))
-                                .frame(width: 106, height: 74)
                         }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 74)
                     }
                     .buttonStyle(.plain)
                 }
             }
+            .padding(.vertical, 4)
         }
-        .frame(width: 414)
+        .frame(maxWidth: .infinity)
+        .frame(height: 82.5)
     }
 }
 
@@ -108,16 +90,24 @@ struct TagBadge: View {
 struct FilterPill: View {
     let label: String
     var isSelected: Bool = false
+    var action: (() -> Void)? = nil
 
     var body: some View {
-        Text(label)
-            .font(AppTheme.Fonts.roboto(15, weight: .bold))
-            .foregroundColor(AppTheme.Colors.filterPillText)
-            .frame(width: 77, height: 22)
-            .background(
-                RoundedRectangle(cornerRadius: 50)
-                    .fill(AppTheme.Colors.filterPill)
-            )
+        Button {
+            action?()
+        } label: {
+            Text(label)
+                .font(AppTheme.Fonts.roboto(15, weight: .bold))
+                .foregroundColor(AppTheme.Colors.filterPillText)
+                .frame(width: 77, height: 22)
+                .background(
+                    RoundedRectangle(cornerRadius: 50)
+                        .fill(isSelected
+                              ? AppTheme.Colors.filterPillText.opacity(0.15)
+                              : AppTheme.Colors.filterPill)
+                )
+        }
+        .buttonStyle(.plain)
     }
 }
 

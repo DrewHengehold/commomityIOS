@@ -4,15 +4,23 @@ import MapKit
 struct PostDetailView: View {
     let post: CommunityPost
 
-    @Environment(AppRouter.self) private var router
+    @Environment(AppRouter.self)        private var router
     @Environment(UserSessionManager.self) private var session
 
     @State private var mapPosition: MapCameraPosition = .automatic
     @State private var pinCoordinate: CLLocationCoordinate2D?
 
-    private var tagColor: Color { Color(hex: post.intent.tagColorHex) }
-    private var cardBg: Color { Color(hex: post.intent.cardColorHex) }
-    private var isOwnPost: Bool { session.currentUserId == post.authorId }
+    // Messaging
+    @State private var isStartingChat   = false
+    @State private var showingChat      = false
+    @State private var activeConvId     = ""
+    @State private var activeConvTitle  = ""
+    @State private var chatError: String? = nil
+
+    private var tagColor: Color  { Color(hex: post.intent.tagColorHex) }
+    private var cardBg:  Color   { Color(hex: post.intent.cardColorHex) }
+    private var isOwnPost: Bool  { session.currentUserId == post.authorId }
+    private var isLoggedIn: Bool { session.currentUserId != nil }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -37,6 +45,22 @@ struct PostDetailView: View {
         .background(Color.white)
         .navigationBarTitleDisplayMode(.inline)
         .task { await geocodeCity(post.location) }
+        .fullScreenCover(isPresented: $showingChat) {
+            ChatView(
+                conversationTitle: activeConvTitle,
+                conversationId:    activeConvId,
+                isGroup:           false,
+                intent:            post.intent,
+                subject:           post.subject,
+                onDismiss:         { showingChat = false }
+            )
+            .environment(session)
+        }
+        .alert("Couldn't start conversation", isPresented: .constant(chatError != nil)) {
+            Button("OK") { chatError = nil }
+        } message: {
+            Text(chatError ?? "")
+        }
     }
 
     // MARK: - Author row
@@ -138,20 +162,69 @@ struct PostDetailView: View {
                 .font(AppTheme.Fonts.roboto(14))
                 .foregroundColor(AppTheme.Colors.subtitleGray)
                 .frame(maxWidth: .infinity, alignment: .center)
+        } else if !isLoggedIn {
+            Text("Sign in to send a message")
+                .font(AppTheme.Fonts.roboto(14))
+                .foregroundColor(AppTheme.Colors.subtitleGray)
+                .frame(maxWidth: .infinity, alignment: .center)
         } else {
             Button {
-                router.selectedTab = .inbox
+                Task { await startConversation() }
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "message.fill")
-                    Text("Send a Message")
-                        .font(AppTheme.Fonts.roboto(18, weight: .bold))
+                ZStack {
+                    HStack(spacing: 8) {
+                        Image(systemName: "message.fill")
+                        Text("Send a Message")
+                            .font(AppTheme.Fonts.roboto(18, weight: .bold))
+                    }
+                    .foregroundColor(.white)
+                    .opacity(isStartingChat ? 0 : 1)
+
+                    if isStartingChat {
+                        ProgressView()
+                            .tint(.white)
+                    }
                 }
-                .foregroundColor(.white)
                 .frame(maxWidth: .infinity, minHeight: 54)
                 .background(RoundedRectangle(cornerRadius: AppTheme.pillRadius).fill(tagColor))
                 .shadow(color: tagColor.opacity(0.3), radius: 6, x: 0, y: 4)
             }
+            .disabled(isStartingChat)
+        }
+    }
+
+    // MARK: - Start conversation
+
+    private func startConversation() async {
+        guard let myId = session.currentUserId?.uuidString else { return }
+        let authorId   = post.authorId.uuidString
+        let myName     = session.currentUser?.fullName ?? "Me"
+        let authorName = post.author?.fullName ?? "Community Member"
+
+        isStartingChat = true
+        defer { isStartingChat = false }
+
+        do {
+            // Re-use existing 1:1 conversation if one already exists
+            if let existing = try await FirebaseService.shared.findConversation(
+                between: myId, and: authorId
+            ) {
+                activeConvId    = existing.id
+                activeConvTitle = authorName
+                showingChat     = true
+                return
+            }
+
+            // Create a new conversation
+            let convId = try await FirebaseService.shared.createConversation(
+                participants:     [myId, authorId],
+                participantNames: [myId: myName, authorId: authorName]
+            )
+            activeConvId    = convId
+            activeConvTitle = authorName
+            showingChat     = true
+        } catch {
+            chatError = error.localizedDescription
         }
     }
 
@@ -163,7 +236,7 @@ struct PostDetailView: View {
         pinCoordinate = loc.coordinate
         mapPosition = .region(MKCoordinateRegion(
             center: loc.coordinate,
-            span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+            span:   MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
         ))
     }
 
@@ -181,7 +254,7 @@ struct PostDetailView: View {
 
 #Preview("Offering Housing") {
     struct Preview: View {
-        @State var router = AppRouter()
+        @State var router  = AppRouter()
         @State var session = UserSessionManager()
         var body: some View {
             NavigationStack {
@@ -189,7 +262,7 @@ struct PostDetailView: View {
                     id: UUID(), authorId: UUID(),
                     intent: .offering, subject: "Housing",
                     title: "Private room available in 2BR apartment",
-                    description: "Quiet, furnished room near Caltrain. Utilities included. Month-to-month preferred.",
+                    description: "Quiet, furnished room near Caltrain. Utilities included.",
                     location: "San Francisco",
                     status: .published, expiresAt: nil, createdAt: Date()
                 ))
@@ -201,20 +274,24 @@ struct PostDetailView: View {
     return Preview()
 }
 
-#Preview("Seeking Career Advice") {
+#Preview("Own Post") {
     struct Preview: View {
-        @State var router = AppRouter()
-        @State var session = UserSessionManager()
+        @State var router  = AppRouter()
+        @State var session: UserSessionManager = {
+            let s = UserSessionManager()
+            s.currentUserId = UUID()
+            return s
+        }()
         var body: some View {
+            let authorId = session.currentUserId!
             NavigationStack {
                 PostDetailView(post: CommunityPost(
-                    id: UUID(), authorId: UUID(),
+                    id: UUID(), authorId: authorId,
                     intent: .seeking, subject: "Career Advice",
-                    title: "Looking for a mentor in product design",
-                    description: "Recent grad looking for someone with 5+ years of UX/product experience to meet monthly.",
+                    title: "Looking for a product design mentor",
+                    description: nil,
                     location: "Oakland",
-                    status: .published, expiresAt: nil,
-                    createdAt: Calendar.current.date(byAdding: .day, value: -3, to: Date()) ?? Date()
+                    status: .published, expiresAt: nil, createdAt: Date()
                 ))
                 .environment(router)
                 .environment(session)

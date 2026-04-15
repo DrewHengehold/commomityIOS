@@ -35,7 +35,13 @@ struct ContentView: View {
                 ContentUnavailableView("Post Not Found", systemImage: "doc.questionmark")
             }
         case .conversation(let id):
-            Text("Conversation \(id)").navigationTitle("Conversation")
+            ChatView(
+                conversationTitle: "Message",
+                conversationId:    id,
+                isGroup:           false,
+                onDismiss:         { router.navigationPath.removeLast() }
+            )
+            .environment(session)
         case .profile(let userId):
             Text("Profile \(userId)").navigationTitle("Profile")
         case .communityDetail(let id):
